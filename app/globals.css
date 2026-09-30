@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+html { -webkit-tap-highlight-color: transparent; }
+body { @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Recharts: sin borde de foco */
+.recharts-wrapper *:focus { outline: none; }
