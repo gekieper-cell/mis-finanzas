@@ -3,12 +3,28 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login"];
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+function configError(detail: string) {
+  // Mensaje legible en vez de un 500 opaco. No expone valores, solo qué falta.
+  return new NextResponse(`Error de configuración: ${detail}`, {
+    status: 500,
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
 export async function proxy(request: NextRequest) {
+  if (!SUPABASE_URL) return configError("falta NEXT_PUBLIC_SUPABASE_URL en Vercel (Production).");
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL))
+    return configError("NEXT_PUBLIC_SUPABASE_URL tiene un formato inválido (¿espacios o barra final?).");
+  if (!SUPABASE_KEY) return configError("falta NEXT_PUBLIC_SUPABASE_ANON_KEY en Vercel (Production).");
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    SUPABASE_URL,
+    SUPABASE_KEY,
     {
       cookies: {
         getAll() {
@@ -24,9 +40,15 @@ export async function proxy(request: NextRequest) {
   );
 
   // getUser() valida el JWT contra Supabase Auth (no confía en la cookie a ciegas)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error && error.status && error.status >= 500) return configError(`Supabase Auth respondió ${error.status}.`);
+    user = data.user;
+  } catch (e) {
+    console.error("proxy getUser", e);
+    return configError("no se pudo contactar a Supabase. Revisá la URL y la clave.");
+  }
 
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
