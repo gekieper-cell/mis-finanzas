@@ -14,6 +14,17 @@ Stack: **Next.js 16 + Supabase (Postgres + Auth) + Vercel**. Tiempo estimado: 20
 3. Verificá en **Table Editor** que existan: `accounts`, `categories`, `transactions`, `budgets`, `recurring`, `audit_log`, y que todas muestren **RLS enabled**.
 4. Opcional: **Advisors → Security Advisor** no debería marcar tablas sin RLS.
 
+### Migraciones (si ya tenías la base creada)
+
+Si ya corriste `schema.sql` antes, ejecutá solo las migraciones nuevas, en orden, en el SQL Editor:
+
+| Archivo | Para qué |
+|---|---|
+| `supabase/migrations/002_comercios.sql` | El escáner recuerda comercio y categoría |
+| `supabase/migrations/003_cuotas.sql` | Resúmenes de tarjeta y cuotas |
+
+Son idempotentes: correrlas dos veces no rompe nada.
+
 ## 2. Supabase — autenticación (solo vos)
 
 1. **Authentication → Sign In / Providers**:

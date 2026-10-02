@@ -5,9 +5,24 @@
 :root { color-scheme: light; }
 .dark { color-scheme: dark; }
 
-html { -webkit-tap-highlight-color: transparent; }
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html, body { overflow-x: clip; }
 body { @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; }
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
 /* Recharts: sin borde de foco */
 .recharts-wrapper *:focus { outline: none; }
+
+/* iOS Safari: el input date tiene ancho mínimo propio y se sale de la grilla */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  display: block;
+}
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.6; }

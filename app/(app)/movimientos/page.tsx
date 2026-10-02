@@ -82,40 +82,44 @@ export default function Movimientos() {
         title="Movimientos"
         subtitle={`${filtered.length} movimientos · Ingresos ${fmtMoney(tt.income)} · Gastos ${fmtMoney(tt.expense)}`}
         action={
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={15} /> Importar</Button>
-            <Button variant="secondary" size="sm" onClick={exportCSV} disabled={!filtered.length}><Download size={15} /> CSV</Button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setImportOpen(true)}><Upload size={15} /> Importar</Button>
+            <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={exportCSV} disabled={!filtered.length}><Download size={15} /> CSV</Button>
             <Button size="sm" onClick={() => openTx()} className="hidden sm:inline-flex"><Plus size={15} /> Nuevo</Button>
           </div>
         }
       />
 
       <Card className="mb-4 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 rounded-xl border border-slate-200 p-1 dark:border-slate-700">
-            <button onClick={() => setYm(shiftMonth(ym, period === "month" ? -1 : -12))} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Anterior"><ChevronLeft size={16} /></button>
-            <span className="min-w-[128px] text-center text-sm font-medium">{period === "month" ? fmtMonth(ym) : `Año ${year}`}</span>
-            <button onClick={() => setYm(shiftMonth(ym, period === "month" ? 1 : 12))} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Siguiente"><ChevronRight size={16} /></button>
+        <div className="grid grid-cols-2 gap-2 lg:flex lg:flex-wrap lg:items-center">
+          <div className="col-span-2 flex items-center gap-2 lg:col-span-1">
+            <div className="flex flex-1 items-center justify-between gap-1 rounded-xl border border-slate-200 p-1 dark:border-slate-700 lg:flex-none">
+              <button onClick={() => setYm(shiftMonth(ym, period === "month" ? -1 : -12))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Anterior"><ChevronLeft size={16} /></button>
+              <span className="min-w-[128px] text-center text-sm font-medium">{period === "month" ? fmtMonth(ym) : `Año ${year}`}</span>
+              <button onClick={() => setYm(shiftMonth(ym, period === "month" ? 1 : 12))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Siguiente"><ChevronRight size={16} /></button>
+            </div>
+            <div className="w-24 shrink-0">
+              <Select value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="Período">
+                <option value="month">Mes</option>
+                <option value="year">Año</option>
+              </Select>
+            </div>
           </div>
-          <Select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="w-auto">
-            <option value="month">Mes</option>
-            <option value="year">Año</option>
-          </Select>
-          <div className="relative min-w-[180px] flex-1">
+          <div className="relative col-span-2 lg:min-w-[220px] lg:flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar nota, categoría, monto…" className="pl-9" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar nota, categoría, monto…" className="pl-9" type="search" />
           </div>
-          <Select value={type} onChange={(e) => setType(e.target.value)} className="w-auto">
+          <Select value={type} onChange={(e) => setType(e.target.value)} className="lg:w-auto" aria-label="Tipo">
             <option value="">Todos</option>
             <option value="expense">Gastos</option>
             <option value="income">Ingresos</option>
             <option value="transfer">Transferencias</option>
           </Select>
-          <Select value={acc} onChange={(e) => setAcc(e.target.value)} className="w-auto">
+          <Select value={acc} onChange={(e) => setAcc(e.target.value)} className="lg:w-auto" aria-label="Cuenta">
             <option value="">Todas las cuentas</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Select>
-          <Select value={cat} onChange={(e) => setCat(e.target.value)} className="w-auto">
+          <Select value={cat} onChange={(e) => setCat(e.target.value)} className="col-span-2 lg:col-span-1 lg:w-auto" aria-label="Categoría">
             <option value="">Todas las categorías</option>
             {roots.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>

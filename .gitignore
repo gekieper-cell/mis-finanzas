@@ -1,11 +1,16 @@
 node_modules
 .next
-.env
-.env.local
-.env*.local
+.env*
+!.env.example
 *.tsbuildinfo
 next-env.d.ts
 .vercel
 
-.vercel
-.env*
+# Archivos del OCR / QR / PDF (se generan en el build)
+public/tesseract
+public/zxing
+public/pdfjs
+
+# Descargas de Claude (zips, capturas): no van al repo
+Claude outputs/
+deploy.ps1.txt

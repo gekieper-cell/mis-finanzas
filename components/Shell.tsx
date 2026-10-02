@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
-  ArrowLeftRight, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Repeat, Sun, Target, Wallet, X,
+  ArrowLeftRight, CreditCard, Eye, EyeOff, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Repeat, Sun, Target, Wallet, X,
 } from "lucide-react";
 import { DataProvider, useData } from "@/lib/data";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -19,24 +19,32 @@ const NAV = [
   { href: "/presupuestos", label: "Presupuestos", icon: Target },
   { href: "/cuentas", label: "Cuentas", icon: Wallet },
   { href: "/recurrentes", label: "Recurrentes", icon: Repeat },
+  { href: "/cuotas", label: "Cuotas", icon: CreditCard },
   { href: "/actividad", label: "Actividad", icon: History },
 ];
 
 const QuickCtx = createContext<(tx?: Transaction) => void>(() => {});
 export const useQuickAdd = () => useContext(QuickCtx);
 
-export function Shell({ email, children }: { email: string; children: React.ReactNode }) {
+export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <DataProvider>
-      <Inner email={email}>{children}</Inner>
+      <Inner>{children}</Inner>
     </DataProvider>
   );
 }
 
-function Inner({ email, children }: { email: string; children: React.ReactNode }) {
+function Inner({ children }: { children: React.ReactNode }) {
+  // Email solo para mostrar (la autorización la hacen el proxy y el RLS)
+  const [email, setEmail] = useState("");
+  useEffect(() => {
+    supabaseBrowser()
+      .auth.getSession()
+      .then(({ data }) => setEmail(data.session?.user.email ?? ""));
+  }, []);
   const path = usePathname();
   const router = useRouter();
-  const { ready, error } = useData();
+  const { ready, error, hidden, toggleHidden } = useData();
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [menu, setMenu] = useState(false);
@@ -59,7 +67,10 @@ function Inner({ email, children }: { email: string; children: React.ReactNode }
       <div className="min-h-dvh bg-slate-50 dark:bg-slate-950">
         {/* Sidebar desktop */}
         <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-900 lg:flex">
-          <Brand />
+          <div className="flex items-center justify-between">
+            <Brand />
+            <PrivacyButton hidden={hidden} onClick={toggleHidden} />
+          </div>
           <button
             onClick={() => openTx()}
             className="mt-8 flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-600 font-medium text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700"
@@ -94,11 +105,12 @@ function Inner({ email, children }: { email: string; children: React.ReactNode }
         </aside>
 
         {/* Header mobile */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/85 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/85 lg:hidden">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/85 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/85 lg:hidden">
           <Brand />
+          <PrivacyButton hidden={hidden} onClick={toggleHidden} />
         </header>
 
-        <main className="px-4 pb-28 pt-5 sm:px-6 lg:ml-64 lg:px-10 lg:pb-12 lg:pt-10">
+        <main className="pb-[calc(env(safe-area-inset-bottom)+7.5rem)] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-5 sm:px-6 lg:ml-64 lg:px-10 lg:pb-12 lg:pt-10">
           <div className="mx-auto max-w-6xl">
             {error && (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
@@ -160,6 +172,25 @@ function Inner({ email, children }: { email: string; children: React.ReactNode }
         <TxModal open={txOpen} onClose={() => setTxOpen(false)} initial={editing} />
       </div>
     </QuickCtx.Provider>
+  );
+}
+
+function PrivacyButton({ hidden, onClick }: { hidden: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={hidden}
+      aria-label={hidden ? "Mostrar montos" : "Ocultar montos"}
+      title={hidden ? "Mostrar montos" : "Ocultar montos"}
+      className={cx(
+        "rounded-xl p-2 transition",
+        hidden
+          ? "bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100"
+          : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+      )}
+    >
+      {hidden ? <EyeOff size={20} /> : <Eye size={20} />}
+    </button>
   );
 }
 

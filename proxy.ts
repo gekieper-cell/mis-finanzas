@@ -16,7 +16,7 @@ function configError(detail: string) {
 
 export async function proxy(request: NextRequest) {
   if (!SUPABASE_URL) return configError("falta NEXT_PUBLIC_SUPABASE_URL en Vercel (Production).");
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL))
+  if (!/^https?:\/\/[^\s/]+$/.test(SUPABASE_URL))
     return configError("NEXT_PUBLIC_SUPABASE_URL tiene un formato inválido (¿espacios o barra final?).");
   if (!SUPABASE_KEY) return configError("falta NEXT_PUBLIC_SUPABASE_ANON_KEY en Vercel (Production).");
 
@@ -39,12 +39,14 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // getUser() valida el JWT contra Supabase Auth (no confía en la cookie a ciegas)
-  let user = null;
+  // getClaims() verifica la FIRMA del JWT: con claves asimétricas lo hace localmente (rápido, sin red);
+  // con clave simétrica consulta a Supabase Auth como getUser(). Nunca confía en la cookie a ciegas.
+  let user: { sub: string } | null = null;
   try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && error.status && error.status >= 500) return configError(`Supabase Auth respondió ${error.status}.`);
-    user = data.user;
+    const { data, error } = await supabase.auth.getClaims();
+    if (error && "status" in error && typeof error.status === "number" && error.status >= 500)
+      return configError(`Supabase Auth respondió ${error.status}.`);
+    user = data?.claims?.sub ? { sub: data.claims.sub } : null;
   } catch (e) {
     console.error("proxy getUser", e);
     return configError("no se pudo contactar a Supabase. Revisá la URL y la clave.");
@@ -69,6 +71,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icons/|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icons/|tesseract/|zxing/|pdfjs/|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)",
   ],
 };

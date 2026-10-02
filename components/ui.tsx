@@ -8,7 +8,7 @@ export const cx = clsx;
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={cx("rounded-2xl border border-slate-200/80 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900", className)}>
+    <div className={cx("min-w-0 rounded-2xl border border-slate-200/80 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900", className)}>
       {children}
     </div>
   );
@@ -16,8 +16,8 @@ export function Card({ className, children }: { className?: string; children: Re
 
 export function CardHeader({ title, subtitle, action }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-5 pt-5">
-      <div>
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-5 pt-5">
+      <div className="min-w-0">
         <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
       </div>
@@ -53,7 +53,7 @@ export function Button({
 }
 
 const fieldCls =
-  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+  "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-base text-slate-900 sm:h-10 sm:text-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(fieldCls, className)} />;
@@ -109,9 +109,10 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Progress({ value, color }: { value: number; color?: string }) {
+export function Progress({ value, color, plain }: { value: number; color?: string; plain?: boolean }) {
   const pct = Math.max(0, Math.min(100, value));
-  const tone = value >= 100 ? "bg-red-500" : value >= 80 ? "bg-amber-500" : undefined;
+  // Semáforo solo para presupuestos (rojo = excedido); "plain" para avances como cuotas
+  const tone = plain ? undefined : value >= 100 ? "bg-red-500" : value >= 80 ? "bg-amber-500" : undefined;
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
       <div
@@ -152,7 +153,7 @@ export function Modal({
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cx(
-          "relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-2xl dark:bg-slate-900 sm:rounded-3xl sm:pb-5",
+          "relative max-h-[92dvh] w-full overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] shadow-2xl dark:bg-slate-900 sm:rounded-3xl sm:pb-5",
           wide ? "sm:max-w-2xl" : "sm:max-w-md",
         )}
       >

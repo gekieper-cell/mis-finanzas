@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Camera, CheckCircle2, ImageUp, Loader2, ScanLine, Trash2, TriangleAlert } from "lucide-react";
 import { useData } from "@/lib/data";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fmtMoney, localISO, parseAmount } from "@/lib/format";
+import { fmtDay, fmtMoney, localISO, parseAmount } from "@/lib/format";
+import { merchantKey, scanReceipt, type ScanResult } from "@/lib/scan";
 import type { Transaction, TxType } from "@/lib/types";
 import { CatIcon } from "./icons";
+import { Scanner } from "./Scanner";
 import { Button, Field, Input, Modal, Segmented, Select, cx } from "./ui";
 
 const LAST_ACC = "fp:lastAccount";
@@ -27,10 +29,20 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setErr(null);
+    setScan(null);
+    setScanStatus(null);
+    setScanError(null);
+    setDuplicate(null);
     if (initial) {
       const cat = categories.find((c) => c.id === initial.category_id);
       setType(initial.type);
@@ -56,7 +68,9 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
       setDate(localISO());
       setNote("");
     }
-    setTimeout(() => amountRef.current?.focus(), 50);
+    // En celular no abrimos el teclado de entrada: así queda a la vista el botón de escanear
+    const touch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+    if (!touch) setTimeout(() => amountRef.current?.focus(), 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial]);
 
@@ -70,6 +84,70 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
   );
 
   const parsed = parseAmount(amount);
+
+  /** Completa el formulario con lo leído (QR u OCR) */
+  const applyResult = useCallback(
+    async (r: ScanResult) => {
+      setScan(r);
+      if (r.isCredit) setType("income");
+      else setType((t) => (t === "transfer" ? "expense" : t));
+      if (r.amount) setAmount(r.amount.toLocaleString("es-AR", { maximumFractionDigits: 2 }));
+      if (r.date) setDate(r.date);
+
+      // Comercio recordado: nombre y categoría de la última vez
+      let name = r.merchant ?? "";
+      const key = merchantKey(r);
+      if (key) {
+        const { data: m } = await sb.from("merchants").select("name,category_id").eq("key", key).maybeSingle();
+        if (m) {
+          name = m.name;
+          const cat = categories.find((c) => c.id === m.category_id && !c.archived);
+          if (cat) {
+            setParentId(cat.parent_id ?? cat.id);
+            setSubId(cat.parent_id ? cat.id : null);
+          }
+        }
+      }
+      setNote(name);
+
+      // ¿Ya cargada? (mismo número de comprobante, o mismo monto y fecha)
+      const num = r.docLabel?.match(/\d{4}-\d{8}$/)?.[0];
+      if (num || (r.amount && r.date)) {
+        let q = sb.from("transactions").select("date,amount").limit(1);
+        q = num ? q.ilike("note", `%${num}%`) : q.eq("amount", r.amount!).eq("date", r.date!);
+        const { data: dup } = await q;
+        if (dup?.length) setDuplicate(`${fmtDay(dup[0].date)} por ${fmtMoney(Number(dup[0].amount))}`);
+      }
+    },
+    [sb, categories],
+  );
+
+  const onQR = useCallback(
+    (r: ScanResult) => {
+      setScannerOpen(false);
+      setScanError(null);
+      setDuplicate(null);
+      void applyResult(r);
+    },
+    [applyResult],
+  );
+
+  async function onPhoto(file: File | undefined) {
+    if (!file) return;
+    setScannerOpen(false);
+    setScanError(null);
+    setScan(null);
+    setDuplicate(null);
+    try {
+      await applyResult(await scanReceipt(file, setScanStatus));
+    } catch (e) {
+      console.error(e);
+      setScanError("No pude leer la imagen. Probá con más luz, el ticket entero y sin reflejos.");
+    } finally {
+      setScanStatus(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
 
   async function save() {
     setErr(null);
@@ -85,7 +163,7 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
       account_id: accountId,
       transfer_account_id: type === "transfer" ? toAccountId : null,
       category_id: type === "transfer" ? null : subId ?? parentId,
-      note: note.trim() || null,
+      note: [note.trim(), scan?.docLabel].filter(Boolean).join(" · ").slice(0, 200) || null,
     };
     setSaving(true);
     const { error } = initial
@@ -96,6 +174,14 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
     try {
       localStorage.setItem(LAST_ACC, accountId);
     } catch {}
+    const key = scan ? merchantKey({ cuit: scan.cuit, merchant: note.trim() || scan.merchant }) : null;
+    if (key && type !== "transfer") {
+      // Si la tabla aún no existe (migración 002 sin correr) simplemente no recuerda
+      await sb.from("merchants").upsert(
+        { key, name: (note.trim() || scan?.docLabel || "Comercio").slice(0, 80), category_id: subId ?? parentId, updated_at: new Date().toISOString() },
+        { onConflict: "user_id,key" },
+      );
+    }
     bump();
     onClose();
   }
@@ -113,7 +199,8 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
   const tone = type === "expense" ? "text-red-600" : type === "income" ? "text-emerald-600" : "text-brand-600";
 
   return (
-    <Modal open={open} onClose={onClose} title={initial ? "Editar movimiento" : "Nuevo movimiento"}>
+    <Modal open={open} onClose={() => (scannerOpen ? setScannerOpen(false) : onClose())} title={initial ? "Editar movimiento" : "Nuevo movimiento"}>
+      <Scanner open={scannerOpen} onClose={() => setScannerOpen(false)} onResult={onQR} onPhoto={(f) => void onPhoto(f)} />
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -135,6 +222,60 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
             { value: "transfer", label: "Transferencia", activeClass: "text-brand-600" },
           ]}
         />
+
+        {!initial && (
+          <div className="space-y-2">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(e.target.files?.[0])} />
+            {scanStatus ? (
+              <div className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50 px-3 py-3 text-sm text-brand-700 dark:border-brand-600/30 dark:bg-brand-600/10 dark:text-brand-100">
+                <Loader2 size={18} className="shrink-0 animate-spin" /> {scanStatus}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" className="flex-1" onClick={() => setScannerOpen(true)}>
+                  <Camera size={17} /> Escanear factura
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()} aria-label="Elegir foto de la galería" title="Elegir foto">
+                  <ImageUp size={17} />
+                </Button>
+              </div>
+            )}
+            {scan && (
+              <div
+                className={cx(
+                  "flex gap-2 rounded-xl px-3 py-2.5 text-xs",
+                  scan.source === "qr" || scan.confidence === "alta"
+                    ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    : "bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+                )}
+              >
+                {scan.source === "qr" ? <CheckCircle2 size={16} className="mt-px shrink-0" /> : <ScanLine size={16} className="mt-px shrink-0" />}
+                <div>
+                  {scan.source === "qr" ? (
+                    <p className="font-semibold">Leído del QR fiscal: datos exactos</p>
+                  ) : scan.confidence === "alta" ? (
+                    <p className="font-semibold">Leído del ticket: el total coincide en varias partes del ticket</p>
+                  ) : (
+                    <p className="font-semibold">Lectura aproximada del ticket: revisá monto y fecha</p>
+                  )}
+                  <p>
+                    {[scan.docLabel, scan.cuit && `CUIT ${scan.cuit}`, scan.currencyNote, scan.isCredit && "Nota de crédito: se carga como ingreso"]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    {!scan.amount && "No encontré el total: ingresalo a mano."}
+                  </p>
+                </div>
+              </div>
+            )}
+            {duplicate && (
+              <div className="flex gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-200">
+                <TriangleAlert size={16} className="mt-px shrink-0" />
+                <p><span className="font-semibold">¿Ya la cargaste?</span> Hay un movimiento igual del {duplicate}.</p>
+              </div>
+            )}
+            {scanError && <p className="rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">{scanError}</p>}
+          </div>
+        )}
 
         <div className="text-center">
           <div className="flex items-center justify-center gap-1">
@@ -232,7 +373,7 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
           </Field>
         )}
-        <Field label="Nota (opcional)">
+        <Field label={scan ? "Comercio / nota (se recuerda para la próxima)" : "Nota (opcional)"}>
           <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Ej: supermercado Coto" />
         </Field>
 

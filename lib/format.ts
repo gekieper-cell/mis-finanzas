@@ -2,11 +2,19 @@ const money0 = new Intl.NumberFormat("es-AR", { style: "currency", currency: "AR
 const money2 = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const compact = new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 });
 
+// Modo privado: oculta todos los montos de la app
+let privacy = false;
+export const setPrivacy = (v: boolean) => {
+  privacy = v;
+};
+export const MASK = "$ ••••••";
+
 export const fmtMoney = (n: number) => {
+  if (privacy) return MASK;
   const v = Math.round((n || 0) * 100) / 100;
   return (Number.isInteger(v) ? money0 : money2).format(v);
 };
-export const fmtCompact = (n: number) => "$" + compact.format(n || 0);
+export const fmtCompact = (n: number) => (privacy ? "$•••" : "$" + compact.format(n || 0));
 
 /** Acepta "1.890.000", "1890000,50", "1890000.5", "$ 12.000" */
 export function parseAmount(input: string): number {

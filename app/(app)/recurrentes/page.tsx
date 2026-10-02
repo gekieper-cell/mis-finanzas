@@ -61,33 +61,37 @@ export default function Recurrentes() {
               const c = r.category_id ? catById.get(r.category_id) : undefined;
               const d = daysUntil(r.next_date);
               return (
-                <li key={r.id} className={cx("flex flex-wrap items-center gap-3 px-3 py-3", !r.active && "opacity-50")}>
-                  <CatIcon icon={c?.icon ?? "receipt"} color={c?.color ?? "#64748b"} />
-                  <div className="min-w-[150px] flex-1">
-                    <p className="flex items-center gap-2 font-medium">
-                      {r.name}
-                      {r.is_subscription && <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">Suscripción</span>}
-                      {r.auto_post && r.active && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">Auto</span>}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {FREQUENCIES[r.frequency]} · {accById.get(r.account_id)?.name}
-                      {r.active && (
-                        <span className={cx(" ml-1", d <= 3 && "font-medium text-amber-600")}>
-                          · próximo {d === 0 ? "hoy" : d === 1 ? "mañana" : fmtDay(r.next_date)}
+                <li key={r.id} className={cx("px-3 py-3", !r.active && "opacity-50")}>
+                  <div className="flex items-start gap-3">
+                    <CatIcon icon={c?.icon ?? "receipt"} color={c?.color ?? "#64748b"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 truncate font-medium">{r.name}</p>
+                        <span className={cx("shrink-0 font-semibold tabular-nums", r.type === "income" && "text-emerald-600")}>
+                          {r.type === "income" ? "+" : ""}{fmtMoney(r.amount)}
                         </span>
-                      )}
-                    </p>
-                  </div>
-                  <span className={cx("font-semibold tabular-nums", r.type === "income" && "text-emerald-600")}>
-                    {r.type === "income" ? "+" : ""}{fmtMoney(r.amount)}
-                  </span>
-                  <div className="flex gap-1">
-                    {r.active && (
-                      <Button size="sm" variant="secondary" onClick={() => post(r)} disabled={posting === r.id} title="Registrar el pago de esta fecha y avanzar al próximo">
-                        <Check size={14} /> Registrar
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={() => setModal({ open: true, initial: r })} aria-label="Editar"><Pencil size={14} /></Button>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {r.is_subscription && <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">Suscripción</span>}
+                        {r.auto_post && r.active && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">Auto</span>}
+                        <span className="text-xs text-slate-500">
+                          {FREQUENCIES[r.frequency]} · {accById.get(r.account_id)?.name}
+                          {r.active && (
+                            <span className={cx(d <= 3 && "font-medium text-amber-600")}>
+                              {" "}· próximo {d === 0 ? "hoy" : d === 1 ? "mañana" : fmtDay(r.next_date)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex gap-1">
+                        {r.active && (
+                          <Button size="sm" variant="secondary" onClick={() => post(r)} disabled={posting === r.id} title="Registrar el pago de esta fecha y avanzar al próximo">
+                            <Check size={14} /> Registrar
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => setModal({ open: true, initial: r })} aria-label="Editar"><Pencil size={14} /> Editar</Button>
+                      </div>
+                    </div>
                   </div>
                 </li>
               );

@@ -9,9 +9,13 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Category, CategoryKind } from "@/lib/types";
 import { CATEGORY_ICONS, CatIcon, PALETTE } from "@/components/icons";
 import { Button, Card, CardHeader, Field, Input, Modal, PageHeader, Progress, Segmented, Select, cx } from "@/components/ui";
+import { payProjection } from "@/lib/installments";
+import Link from "next/link";
+import { CreditCard } from "lucide-react";
 
 export default function Presupuestos() {
-  const { categories, budgets, catById } = useData();
+  const { categories, budgets, catById, plans, statements } = useData();
+  const cuotasMes = payProjection(plans, statements, 1)[0];
   const [ym, setYm] = useState(monthKey(localISO()));
   const { from, to } = monthRange(ym);
   const { rows } = useTransactions(from, to);
@@ -45,6 +49,16 @@ export default function Presupuestos() {
           </div>
         }
       />
+
+      {cuotasMes && cuotasMes.amount > 0 && (
+        <Link href="/cuotas" className="mb-4 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800 dark:border-brand-600/30 dark:bg-brand-600/10 dark:text-brand-100">
+          <CreditCard size={18} className="shrink-0" />
+          <span>
+            Este mes ya tenés comprometidos <b className="tabular-nums">{fmtMoney(cuotasMes.amount)}</b> en {cuotasMes.items.length} cuotas de tarjeta.
+          </span>
+          <span className="ml-auto shrink-0 font-medium">Ver →</span>
+        </Link>
+      )}
 
       <Card className="mb-6 p-5">
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -118,7 +132,7 @@ export default function Presupuestos() {
 
 function BudgetInput({ categoryId, value }: { categoryId: string; value: number }) {
   const sb = supabaseBrowser();
-  const { bump } = useData();
+  const { bump, hidden } = useData();
   const [v, setV] = useState(value ? value.toLocaleString("es-AR") : "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
@@ -136,6 +150,14 @@ function BudgetInput({ categoryId, value }: { categoryId: string; value: number 
     setState("saved");
     bump();
     setTimeout(() => setState("idle"), 1500);
+  }
+
+  if (hidden) {
+    return (
+      <div className="flex h-10 w-40 items-center justify-end rounded-xl border border-slate-200 px-3 text-sm text-slate-400 dark:border-slate-700">
+        {value ? fmtMoney(value) : "Sin límite"}
+      </div>
+    );
   }
 
   return (

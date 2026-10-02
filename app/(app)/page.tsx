@@ -11,6 +11,9 @@ import { useData, useTransactions } from "@/lib/data";
 import { budgetLines, spendByRoot, totals } from "@/lib/calc";
 import { daysUntil, fmtCompact, fmtDay, fmtMoney, fmtMonth, fmtMonthShort, localISO, monthKey, monthRange, shiftMonth } from "@/lib/format";
 import { CatIcon } from "@/components/icons";
+import { payProjection, planStatus } from "@/lib/installments";
+import { fmtYM } from "@/lib/months";
+import { CreditCard } from "lucide-react";
 import { TxRow } from "@/components/TxRow";
 import { useQuickAdd } from "@/components/Shell";
 import { Card, CardHeader, Empty, Progress, cx } from "@/components/ui";
@@ -19,7 +22,7 @@ const INCOME_COLOR = "#2a78d6";
 const EXPENSE_COLOR = "#eb6834";
 
 export default function Dashboard() {
-  const { accounts, categories, budgets, recurring, catById } = useData();
+  const { accounts, categories, budgets, recurring, catById, hidden, plans, statements } = useData();
   const openTx = useQuickAdd();
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
@@ -65,6 +68,13 @@ export default function Dashboard() {
     .filter((r) => r.active && daysUntil(r.next_date) <= 30)
     .sort((a, b) => a.next_date.localeCompare(b.next_date))
     .slice(0, 6);
+
+  // Cuotas de tarjeta
+  const proj = payProjection(plans, statements, 2);
+  const lastEnd = plans.map((p) => planStatus(p, statements)).filter((s) => !s.finished).map((s) => s.endPayMonth).sort().pop();
+  const cardDues = statements
+    .filter((s) => s.due_date && daysUntil(s.due_date) >= 0 && daysUntil(s.due_date) <= 30)
+    .filter((s, i, arr) => arr.findIndex((x) => x.account_id === s.account_id) === i);
 
   const axis = dark ? "#94a3b8" : "#64748b";
   const grid = dark ? "#1e293b" : "#eef2f7";
@@ -120,6 +130,21 @@ export default function Dashboard() {
               .join(" · ")}
           </div>
         </div>
+      )}
+
+      {plans.length > 0 && (
+        <Link href="/cuotas" className="block">
+          <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4 transition hover:border-brand-500/40">
+            <span className="flex items-center gap-2 font-semibold">
+              <span className="rounded-lg bg-brand-50 p-1.5 text-brand-600 dark:bg-brand-600/15"><CreditCard size={16} /></span>
+              Cuotas de tarjeta
+            </span>
+            <span className="text-sm text-slate-500">Este mes <b className="tabular-nums text-slate-900 dark:text-white">{fmtMoney(proj[0]?.amount ?? 0)}</b></span>
+            <span className="text-sm text-slate-500">El próximo <b className="tabular-nums text-slate-900 dark:text-white">{fmtMoney(proj[1]?.amount ?? 0)}</b></span>
+            {lastEnd && <span className="text-sm text-slate-500">Terminás en <b className="text-slate-900 dark:text-white">{fmtYM(lastEnd)}</b></span>}
+            <span className="ml-auto text-sm font-medium text-brand-600">Ver detalle →</span>
+          </Card>
+        </Link>
       )}
 
       <div className="grid gap-4 lg:grid-cols-5">
@@ -218,10 +243,10 @@ export default function Dashboard() {
           <div className="h-64 px-2 pb-4 pt-4">
             {!loading && (
               <ResponsiveContainer>
-                <BarChart data={trend} barGap={2} barCategoryGap="28%">
+                <BarChart key={hidden ? "h" : "v"} data={trend} barGap={2} barCategoryGap="28%">
                   <CartesianGrid vertical={false} stroke={grid} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: axis, fontSize: 12 }} />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fill: axis, fontSize: 12 }} tickFormatter={fmtCompact} width={56} />
+                  <YAxis tickLine={false} axisLine={false} tick={{ fill: axis, fontSize: 12 }} tickFormatter={(v: number) => fmtCompact(v)} width={56} />
                   <Tooltip content={<MoneyTip />} cursor={{ fill: dark ? "#1e293b80" : "#f1f5f9" }} />
                   <Bar dataKey="Ingresos" fill={INCOME_COLOR} radius={[4, 4, 0, 0]} maxBarSize={26} isAnimationActive={false} />
                   <Bar dataKey="Gastos" fill={EXPENSE_COLOR} radius={[4, 4, 0, 0]} maxBarSize={26} isAnimationActive={false} />
@@ -238,10 +263,26 @@ export default function Dashboard() {
             subtitle="Próximos 30 días"
             action={<Link href="/recurrentes" className="text-sm font-medium text-brand-600 hover:underline">Ver todos</Link>}
           />
-          {upcoming.length === 0 ? (
+          {upcoming.length === 0 && cardDues.length === 0 ? (
             <Empty icon={<CalendarClock size={22} />} title="Nada por vencer" />
           ) : (
             <ul className="divide-y divide-slate-100 px-5 py-2 dark:divide-slate-800">
+              {cardDues.map((s) => {
+                const d = daysUntil(s.due_date!);
+                return (
+                  <li key={s.id} className="flex items-center gap-3 py-2.5">
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-600/15"><CreditCard size={15} /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">Resumen {s.issuer ?? "tarjeta"}{s.card_last4 ? ` •••• ${s.card_last4}` : ""}</p>
+                      <p className={cx("text-xs", d <= 3 ? "font-medium text-amber-600" : "text-slate-500")}>
+                        {d === 0 ? "Vence hoy" : d === 1 ? "Vence mañana" : `Vence ${fmtDay(s.due_date!)} · en ${d} días`}
+                        {s.min_payment != null && ` · mínimo ${fmtMoney(s.min_payment)}`}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">{s.balance != null ? fmtMoney(s.balance) : ""}</span>
+                  </li>
+                );
+              })}
               {upcoming.map((r) => {
                 const c = r.category_id ? catById.get(r.category_id) : undefined;
                 const d = daysUntil(r.next_date);

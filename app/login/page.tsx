@@ -20,8 +20,16 @@ export default function LoginPage() {
     const { error } = await supabaseBrowser().auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (error) {
-      // Mensaje genérico: no revelar si el email existe
-      setError("Email o contraseña incorrectos.");
+      // Credenciales: mensaje genérico (no revela si el email existe).
+      // Otros errores (config, red, email sin confirmar): se muestran para poder diagnosticar.
+      const code = (error as { code?: string }).code;
+      if (code === "invalid_credentials" || error.status === 400 && /invalid login/i.test(error.message)) {
+        setError("Email o contraseña incorrectos.");
+      } else if (code === "email_not_confirmed") {
+        setError("El usuario no está confirmado. En Supabase, recrealo tildando 'Auto Confirm User'.");
+      } else {
+        setError(`No se pudo ingresar: ${error.message}${error.status ? ` (HTTP ${error.status})` : ""}`);
+      }
       return;
     }
     router.replace("/");
@@ -29,7 +37,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-slate-50 px-4 dark:bg-slate-950">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-slate-50 px-4 py-[env(safe-area-inset-top)] dark:bg-slate-950">
       <div className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-brand-500/20 blur-3xl" />
       <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
@@ -47,7 +55,7 @@ export default function LoginPage() {
               <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800"
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-base outline-none sm:h-11 sm:text-sm focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800"
               />
             </div>
           </label>
@@ -58,7 +66,7 @@ export default function LoginPage() {
               <input
                 type={show ? "text" : "password"} required autoComplete="current-password" value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800"
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-base outline-none sm:h-11 sm:text-sm focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800"
               />
               <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400" aria-label="Mostrar contraseña">
                 {show ? <EyeOff size={16} /> : <Eye size={16} />}
