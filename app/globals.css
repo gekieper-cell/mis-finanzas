@@ -26,3 +26,13 @@ input[type="date"] {
 }
 input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.6; }
+
+/* Candado Face ID: tapa todo apenas la app pasa a segundo plano (antes de que React re-renderice)
+   para que el selector de apps de iOS no muestre montos. */
+html[data-locked] [data-app] { visibility: hidden; }
+html[data-locked] body::before {
+  content: ""; position: fixed; inset: 0; z-index: 90;
+  background: #f8fafc;
+}
+@media (prefers-color-scheme: dark) { html:not(.light)[data-locked] body::before { background: #020617; } }
+html.dark[data-locked] body::before { background: #020617; }

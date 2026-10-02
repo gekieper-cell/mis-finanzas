@@ -34,6 +34,11 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       {
+        // El service worker siempre fresco (si no, una versión vieja podría quedar pegada)
+        source: "/sw.js",
+        headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }],
+      },
+      {
         source: "/:path*",
         headers: [
           { key: "Content-Security-Policy", value: csp },

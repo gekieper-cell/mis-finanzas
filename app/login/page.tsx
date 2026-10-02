@@ -1,9 +1,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Eye, EyeOff, Lock, Mail, Wallet } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Eye, EyeOff, Lock, Mail, ShieldCheck, Wallet } from "lucide-react";
+import { markFreshLogin } from "@/components/AppLock";
 import { supabaseBrowser } from "@/lib/supabase/client";
+
+/** ¿La sesión actual necesita el código del autenticador? (consulta fresca a Supabase) */
+async function needsCode(): Promise<boolean | null> {
+  const sb = supabaseBrowser();
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return null;
+  const { data: aal, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel(data.session.access_token);
+  if (error || !aal) return null;
+  return aal.nextLevel === "aal2" && aal.currentLevel !== "aal2";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +23,52 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<"password" | "code">("password");
+  const [code, setCode] = useState("");
+
+  const enter = () => {
+    markFreshLogin();
+    router.replace("/");
+    router.refresh();
+  };
+
+  // Si ya hay sesión (p. ej. falta el segundo paso), retomar desde ahí
+  useEffect(() => {
+    needsCode().then((n) => {
+      if (n === true) setStep("code");
+      else if (n === false) router.replace("/");
+    });
+  }, [router]);
+
+  async function onCode(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const sb = supabaseBrowser();
+    const { data: f, error: fe } = await sb.auth.mfa.listFactors();
+    const factor = f?.totp[0];
+    if (fe || !factor) {
+      setLoading(false);
+      setError("No se encontró el autenticador de la cuenta.");
+      return;
+    }
+    const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.trim() });
+    setLoading(false);
+    if (error) {
+      setCode("");
+      const c = (error as { code?: string }).code;
+      setError(c === "mfa_verification_failed" ? "Código incorrecto o vencido." : c === "over_request_rate_limit" ? "Demasiados intentos. Esperá unos minutos." : `No se pudo verificar: ${error.message}`);
+      return;
+    }
+    enter();
+  }
+
+  async function cancelCode() {
+    await supabaseBrowser().auth.signOut();
+    setStep("password");
+    setCode("");
+    setError(null);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,8 +89,11 @@ export default function LoginPage() {
       }
       return;
     }
-    router.replace("/");
-    router.refresh();
+    if (await needsCode()) {
+      setStep("code");
+      return;
+    }
+    enter();
   }
 
   return (
@@ -48,6 +108,29 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-slate-500">Ingresá para ver tus números</p>
         </div>
 
+        {step === "code" ? (
+          <form onSubmit={onCode} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={22} className="mt-0.5 shrink-0 text-brand-600" />
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-white">Verificación en dos pasos</p>
+                <p className="text-sm text-slate-500">Ingresá el código de 6 dígitos de tu app autenticadora.</p>
+              </div>
+            </div>
+            <input
+              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" required autoFocus aria-label="Código"
+              placeholder="000000"
+              className="h-14 w-full rounded-xl border border-slate-200 bg-white text-center text-2xl font-semibold tracking-[0.4em] outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-800"
+            />
+            {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">{error}</p>}
+            <button type="submit" disabled={loading || code.length !== 6}
+              className="h-11 w-full rounded-xl bg-brand-600 font-medium text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-700 disabled:opacity-60">
+              {loading ? "Verificando…" : "Verificar"}
+            </button>
+            <button type="button" onClick={cancelCode} className="w-full text-center text-sm text-slate-500 hover:underline">Cancelar y volver</button>
+          </form>
+        ) : (
         <form onSubmit={onSubmit} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Email</span>
@@ -81,6 +164,7 @@ export default function LoginPage() {
             {loading ? "Ingresando…" : "Ingresar"}
           </button>
         </form>
+        )}
         <p className="mt-6 text-center text-xs text-slate-400">Acceso privado · registro deshabilitado</p>
       </div>
     </div>

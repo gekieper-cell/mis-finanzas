@@ -41,12 +41,12 @@ export async function proxy(request: NextRequest) {
 
   // getClaims() verifica la FIRMA del JWT: con claves asimétricas lo hace localmente (rápido, sin red);
   // con clave simétrica consulta a Supabase Auth como getUser(). Nunca confía en la cookie a ciegas.
-  let user: { sub: string } | null = null;
+  let user: { sub: string; aal?: string } | null = null;
   try {
     const { data, error } = await supabase.auth.getClaims();
     if (error && "status" in error && typeof error.status === "number" && error.status >= 500)
       return configError(`Supabase Auth respondió ${error.status}.`);
-    user = data?.claims?.sub ? { sub: data.claims.sub } : null;
+    user = data?.claims?.sub ? { sub: data.claims.sub, aal: (data.claims as { aal?: string }).aal } : null;
   } catch (e) {
     console.error("proxy getUser", e);
     return configError("no se pudo contactar a Supabase. Revisá la URL y la clave.");
@@ -61,7 +61,9 @@ export async function proxy(request: NextRequest) {
     url.search = "";
     return NextResponse.redirect(url);
   }
-  if (user && path === "/login") {
+  // Con sesión aal1 se deja entrar a /login: ahí se pide el código TOTP si la cuenta tiene doble factor
+  // (la página misma manda al inicio a quien no lo necesita).
+  if (user && path === "/login" && user.aal === "aal2") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
@@ -71,6 +73,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icons/|tesseract/|zxing/|pdfjs/|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icons/|tesseract/|zxing/|pdfjs/|manifest.webmanifest|sw.js|api/push|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)",
   ],
 };

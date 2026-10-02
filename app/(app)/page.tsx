@@ -14,6 +14,7 @@ import { CatIcon } from "@/components/icons";
 import { payProjection, planStatus } from "@/lib/installments";
 import { fmtYM } from "@/lib/months";
 import { CreditCard } from "lucide-react";
+import { ProjectionCard } from "@/components/Projection";
 import { TxRow } from "@/components/TxRow";
 import { useQuickAdd } from "@/components/Shell";
 import { Card, CardHeader, Empty, Progress, cx } from "@/components/ui";
@@ -131,6 +132,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {ym === monthKey(localISO()) && !loading && <ProjectionCard txs={rows} />}
 
       {plans.length > 0 && (
         <Link href="/cuotas" className="block">
@@ -352,7 +355,8 @@ function Stat({
         <span className={cx("text-xs font-medium uppercase tracking-wide", highlight ? "text-blue-100" : "text-slate-500")}>{label}</span>
         <span className={cx("rounded-lg p-1.5", highlight ? "bg-white/15" : "bg-slate-100 text-slate-500 dark:bg-slate-800")}>{icon}</span>
       </div>
-      <p className={cx("mt-3 truncate text-xl font-bold tabular-nums lg:text-2xl", negative && "text-red-600")}>{value}</p>
+      <p className={cx("mt-3 truncate font-bold tabular-nums lg:text-2xl",
+        value.length <= 10 ? "text-xl" : value.length <= 13 ? "text-lg" : "text-base", negative && "text-red-600")}>{value}</p>
       <p className={cx("mt-1 text-xs", highlight ? "text-blue-100" : "text-slate-500")}>
         {delta != null ? (
           <span className={good ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>

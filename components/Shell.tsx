@@ -5,11 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
-  ArrowLeftRight, CreditCard, Eye, EyeOff, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Repeat, Sun, Target, Wallet, X,
+  ArrowLeftRight, CreditCard, Settings, Eye, EyeOff, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Plus, Repeat, Sun, Target, Wallet, X,
 } from "lucide-react";
 import { DataProvider, useData } from "@/lib/data";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Transaction } from "@/lib/types";
+import { AppLock } from "./AppLock";
 import { TxModal } from "./TxModal";
 import { Spinner, cx } from "./ui";
 
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/recurrentes", label: "Recurrentes", icon: Repeat },
   { href: "/cuotas", label: "Cuotas", icon: CreditCard },
   { href: "/actividad", label: "Actividad", icon: History },
+  { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
 
 const QuickCtx = createContext<(tx?: Transaction) => void>(() => {});
@@ -37,13 +39,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
 function Inner({ children }: { children: React.ReactNode }) {
   // Email solo para mostrar (la autorización la hacen el proxy y el RLS)
   const [email, setEmail] = useState("");
-  useEffect(() => {
-    supabaseBrowser()
-      .auth.getSession()
-      .then(({ data }) => setEmail(data.session?.user.email ?? ""));
-  }, []);
   const path = usePathname();
   const router = useRouter();
+  useEffect(() => {
+    const sb = supabaseBrowser();
+    sb.auth.getSession().then(async ({ data }) => {
+      const s = data.session;
+      setEmail(s?.user.email ?? "");
+      if (!s) return;
+      // Doble factor: si la cuenta tiene TOTP y esta sesión solo pasó la contraseña, falta el código.
+      // (Aunque no redirigiera, la base no devuelve datos sin aal2: lo exige el RLS.)
+      const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel(s.access_token);
+      if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") router.replace("/login?paso=codigo");
+    });
+  }, [router]);
   const { ready, error, hidden, toggleHidden } = useData();
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
@@ -64,7 +73,8 @@ function Inner({ children }: { children: React.ReactNode }) {
 
   return (
     <QuickCtx.Provider value={openTx}>
-      <div className="min-h-dvh bg-slate-50 dark:bg-slate-950">
+      <AppLock />
+      <div data-app className="min-h-dvh bg-slate-50 dark:bg-slate-950">
         {/* Sidebar desktop */}
         <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-900 lg:flex">
           <div className="flex items-center justify-between">

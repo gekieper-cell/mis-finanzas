@@ -14,7 +14,7 @@ export const fmtMoney = (n: number) => {
   const v = Math.round((n || 0) * 100) / 100;
   return (Number.isInteger(v) ? money0 : money2).format(v);
 };
-export const fmtCompact = (n: number) => (privacy ? "$•••" : "$" + compact.format(n || 0));
+export const fmtCompact = (n: number) => (privacy ? "$•••" : (n < 0 ? "-$" : "$") + compact.format(Math.abs(n || 0)));
 
 /** Acepta "1.890.000", "1890000,50", "1890000.5", "$ 12.000" */
 export function parseAmount(input: string): number {

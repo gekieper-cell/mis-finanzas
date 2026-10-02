@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
+import { LOCK_BOOT_SCRIPT } from "@/lib/applock";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -25,6 +26,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es-AR" suppressHydrationWarning>
+      <head>
+        {/* Si el candado Face ID está activo, la app arranca tapada (antes del primer pintado) */}
+        <script dangerouslySetInnerHTML={{ __html: LOCK_BOOT_SCRIPT }} />
+      </head>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>

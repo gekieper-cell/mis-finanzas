@@ -22,6 +22,9 @@ Si ya corriste `schema.sql` antes, ejecutá solo las migraciones nuevas, en orde
 |---|---|
 | `supabase/migrations/002_comercios.sql` | El escáner recuerda comercio y categoría |
 | `supabase/migrations/003_cuotas.sql` | Resúmenes de tarjeta y cuotas |
+| `supabase/migrations/004_consumos.sql` | Importar los consumos del resumen sin duplicar |
+| `supabase/migrations/005_doble_factor.sql` | La base exige el código TOTP si activaste el doble factor |
+| `supabase/migrations/006_avisos.sql` | Avisos push diarios (antes: **Database → Extensions** → habilitar `pg_cron` y `pg_net`) |
 
 Son idempotentes: correrlas dos veces no rompe nada.
 
@@ -105,11 +108,18 @@ npm run dev                    # http://localhost:3000
 - La vista de saldos es `security_invoker`, así que respeta el RLS.
 - Funciones con `search_path = ''`. Solo el trigger de auditoría es `SECURITY DEFINER`, y no se puede ejecutar directamente.
 - El rol `anon` no tiene permisos sobre las tablas. El registro público está deshabilitado (paso 2).
-- El proxy valida la sesión contra Supabase Auth con `getUser()` en cada request, y el layout lo vuelve a validar en el servidor.
+- El proxy verifica la firma del JWT (`getClaims()`) en cada request.
+- **Doble factor (TOTP)** opcional desde Ajustes. Lo exige la base: con la cuenta protegida, una sesión que solo pasó la contraseña (`aal1`) no ve ni modifica ninguna fila (política RLS restrictiva `mfa_aal2`). Si perdés el autenticador: Supabase → Authentication → Users → tu usuario → borrar el factor.
+- **Bloqueo con Face ID** (WebAuthn, autenticador del dispositivo): tapa la app cada vez que pasa a segundo plano. Se verifica la firma de la credencial con la clave pública guardada. Es un candado de privacidad local, no reemplaza contraseña ni TOTP.
+- **Avisos push**: la base decide qué avisar (pg_cron 9:00) y le manda a `/api/push` un pedido firmado con HMAC-SHA256 y válido 5 minutos. Vercel no tiene credenciales de la base; solo entrega a Apple/Google/Mozilla/Microsoft (lista cerrada de hosts). Por privacidad, los avisos no muestran montos salvo que lo actives.
 - Headers: CSP estricta (solo conecta con tu proyecto de Supabase), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` y `noindex`.
 - El login devuelve un mensaje de error genérico, sin revelar si el email existe.
 - El CSV exportado neutraliza fórmulas (protección contra CSV injection).
 - Probado: un usuario autenticado no puede leer, escribir ni referenciar datos de otro. Tampoco puede escribir ni borrar la auditoría, y `anon` no accede a nada.
+
+**Avisos push**: después de correr la migración 006, ejecutá `configurar-avisos.ps1` (genera las claves VAPID y el secreto, los carga en Vercel y te deja en el portapapeles el SQL del Vault). En el iPhone, los avisos funcionan con la app instalada en inicio (iOS 16.4+).
+
+**Doble factor**: en Supabase → Authentication → Multi-Factor, verificá que **TOTP** esté habilitado (viene activo por defecto).
 
 **Recomendado en Supabase**: Authentication → Policies/Settings → largo mínimo de contraseña 12. Si tu plan lo incluye, activá *Leaked password protection*.
 

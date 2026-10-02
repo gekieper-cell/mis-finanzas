@@ -15,6 +15,23 @@ export interface StatementInstallment {
   key: string; // identifica la compra entre resúmenes
 }
 
+export type ChargeKind = "compra" | "cuota" | "impuesto" | "reintegro" | "pago";
+
+/** Cada renglón del resumen con importe (consumos, cuotas, impuestos, pagos) */
+export interface StatementCharge {
+  date: string; // fecha del renglón
+  voucher?: string;
+  description: string;
+  amount: number; // positivo = cargo; negativo = pago/reintegro
+  currency: "ARS" | "USD";
+  kind: ChargeKind;
+  n?: number;
+  total?: number;
+  autoDebit?: boolean; // débito automático típico (seguro, streaming, servicios)
+  subscription?: boolean; // suscripción (streaming/software)
+  key: string; // identifica el renglón entre importaciones
+}
+
 export interface ParsedStatement {
   issuer?: string;
   cardLast4?: string;
@@ -25,7 +42,9 @@ export interface ParsedStatement {
   balance?: number;
   balanceUsd?: number;
   minPayment?: number;
+  previousBalance?: number;
   installments: StatementInstallment[];
+  charges: StatementCharge[];
   bankProjection: { month: string; amount: number }[]; // mes de CIERRE (YYYY-MM)
   bankAfter?: { from: string; amount: number };
   warnings: string[];
@@ -72,7 +91,7 @@ const AMT = String.raw`-?\d{1,3}(?:\.\d{3})*,\s?\d{2}`;
 export function parseStatement(raw: string): ParsedStatement {
   const text = raw.replace(/ /g, " ");
   const lines = text.split(/\r?\n/).map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean);
-  const out: ParsedStatement = { installments: [], bankProjection: [], warnings: [] };
+  const out: ParsedStatement = { installments: [], charges: [], bankProjection: [], warnings: [] };
 
   if (/BANCO NACI[OÓ]N|\bBNA\b/i.test(text)) out.issuer = "Banco Nación";
   if (/\bVISA\b/i.test(text)) out.issuer = `Visa${out.issuer ? " " + out.issuer : ""}`;
@@ -105,6 +124,10 @@ export function parseStatement(raw: string): ParsedStatement {
     return m ? num(m[0]) : undefined;
   };
   out.balance ??= lineAmount(/^SALDO ACTUAL/i);
+  {
+    const m = text.match(new RegExp(String.raw`SALDO\s*ANTERIOR\s*\$?\s*(${AMT})`, "i"));
+    if (m) out.previousBalance = num(m[1]);
+  }
   out.minPayment ??= lineAmount(/^PAGO M[IÍ]NIMO/i);
 
   // --- Proyección del banco: "Cuotas a vencer:" + meses + importes
@@ -137,29 +160,49 @@ export function parseStatement(raw: string): ParsedStatement {
     const date = `${yy(m[3])}-${m[2]}-${m[1]}`;
     txDates.push(date);
     const rest = m[4];
-    const cuota = rest.match(/\b[Cc]\.?\s?(\d{1,2})\s?\/\s?(\d{1,2})\b/) ?? rest.match(/CUOTA\s*(\d{1,2})\s*(?:\/|DE)\s*(\d{1,2})/i);
-    if (!cuota) continue;
     const amts = [...rest.matchAll(new RegExp(AMT, "g"))].map((x) => num(x[0]));
     if (!amts.length) continue;
     // Columnas: PESOS y DÓLAR (en ese orden)
     const [ars, usd] = amts.length >= 2 ? amts.slice(-2) : [amts[0], 0];
-    const currency: "ARS" | "USD" = !(ars > 0) && usd > 0 ? "USD" : "ARS";
+    const currency: "ARS" | "USD" = !ars && usd ? "USD" : "ARS";
     const amount = currency === "USD" ? usd : ars;
-    const n = Number(cuota[1]), total = Number(cuota[2]);
-    if (!(amount > 0) || n < 1 || total < 1 || n > total || total > 99) continue;
-    const head = rest.slice(0, cuota.index);
+    if (!amount || !Number.isFinite(amount)) continue;
+
+    const cuota = rest.match(/\b[Cc]\.?\s?(\d{1,2})\s?\/\s?(\d{1,2})\b/) ?? rest.match(/CUOTA\s*(\d{1,2})\s*(?:\/|DE)\s*(\d{1,2})/i);
+    // Texto descriptivo: sin el comprobante, la marca de cuota ni los importes
+    const firstAmt = rest.search(new RegExp(AMT));
+    let head = rest.slice(0, cuota ? cuota.index : firstAmt).replace(/\s*\(.*$/, "").replace(/\s+\d+(?:[.,]\d+)?\s*[%€]?\s*$/, "");
     const vm = head.match(/^(\d{4,})\s+/);
     const voucher = vm?.[1];
-    const description = (vm ? head.slice(vm[0].length) : head)
+    if (vm) head = head.slice(vm[0].length);
+    const description = head
       .replace(/^[VW][VWIN]{2,5}\s*\.\s*/i, "") // "WWWW." / OCR "VIVIW ."
       .replace(/\s*\.\s*/g, ".")
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 80);
-    out.installments.push({
-      date, voucher, description, n, total, amount, currency,
-      key: `${voucher ?? description.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12)}|${date}|${total}`,
+
+    const n = cuota ? Number(cuota[1]) : undefined;
+    const total = cuota ? Number(cuota[2]) : undefined;
+    let kind: ChargeKind = "compra";
+    if (/SU PAGO|PAGO EN PESOS|PAGO EN D[OÓ]LARES|PAGO RECIBIDO/i.test(rest)) kind = "pago";
+    else if (cuota && n! >= 1 && total! >= n! && total! <= 99) kind = "cuota";
+    else if (/IIBB|IVA\s*RG|DB\.?\s*RG|PERCEP|IMP\.?\s|IMPUESTO|SELLOS|COMISI[OÓ]N|INTER[EÉ]S|CARGO|MANTENIM/i.test(rest)) kind = "impuesto";
+    else if (amount < 0) kind = "reintegro";
+
+    const autoDebit = kind === "compra" && AUTO_DEBIT.test(description);
+    const subscription = kind === "compra" && SUBSCRIPTION.test(description);
+    out.charges.push({
+      date, voucher, description, amount, currency, kind, n, total, autoDebit, subscription,
+      key: [voucher ?? descKey(description), date, amount.toFixed(2), n ?? ""].join("|"),
     });
+
+    if (kind === "cuota" && amount > 0) {
+      out.installments.push({
+        date, voucher, description, n: n!, total: total!, amount, currency,
+        key: `${voucher ?? description.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12)}|${date}|${total}`,
+      });
+    }
   }
 
   // --- Cierre: si no se pudo leer, deducirlo (el OCR suele fallar dentro del recuadro)
@@ -214,4 +257,43 @@ export function checkAgainstBank(p: ParsedStatement): { ok: boolean; checked: nu
     if (Math.abs(rest - p.bankAfter.amount) > 1) diffs.push(`desde ${p.bankAfter.from}: banco ${p.bankAfter.amount} / leído ${Math.round(rest * 100) / 100}`);
   }
   return { ok: checked > 0 && diffs.length === 0, checked, diffs };
+}
+
+/** Débitos automáticos habituales en tarjeta (seguros, streaming, servicios, prepagas, gimnasios) */
+const AUTO_DEBIT =
+  /(SEGURO|SPOTIFY|NETFLIX|DISNEY|LINKEDIN|YOUTUBE|GOOGLE|APPLE\.COM|ICLOUD|AMAZON|PRIME VIDEO|HBO|\bMAX\b|PARAMOUNT|STAR\s?\+|OPENAI|CHATGPT|ANTHROPIC|CLAUDE|MICROSOFT|OFFICE|ADOBE|DROPBOX|CANVA|DEEZER|CRUNCHYROLL|DEB\.?\s*AUT|D[EÉ]BITO AUTOM|GIMNASIO|MEGATLON|SMART\s?FIT|TELECOM|PERSONAL|MOVISTAR|CLARO|FIBERTEL|\bFLOW\b|DIRECTV|TELECENTRO|EDENOR|EDESUR|METROGAS|NATURGY|AYSA|OSDE|SWISS MEDICAL|GALENO|MEDIFE|OMINT)/i;
+const SUBSCRIPTION =
+  /(SPOTIFY|NETFLIX|DISNEY|LINKEDIN|YOUTUBE|GOOGLE|APPLE\.COM|ICLOUD|AMAZON|PRIME VIDEO|HBO|\bMAX\b|PARAMOUNT|STAR\s?\+|OPENAI|CHATGPT|ANTHROPIC|CLAUDE|MICROSOFT|OFFICE|ADOBE|DROPBOX|CANVA|DEEZER|CRUNCHYROLL)/i;
+
+/** Clave estable de un comercio a partir del texto del resumen (sin números de póliza/orden) */
+export function descKey(d: string): string {
+  return d
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/^www\.|\.com(\.ar)?.*$/g, "")
+    .replace(/[^a-z ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 30);
+}
+
+/** Nombre legible para un débito automático: "SEGUROS SUDAME0000…" -> "Seguros Sudame" */
+export function prettyName(d: string): string {
+  const k = descKey(d.replace(/\*/g, " "));
+  const words = [...new Set(k.split(" ").filter((w) => w.length > 1))].slice(0, 3);
+  return words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") || d.slice(0, 30);
+}
+
+/** ¿Los renglones leídos suman el saldo del resumen? (saldo anterior + cargos + pagos = saldo actual) */
+export function checkTotals(p: ParsedStatement): { ok: boolean; diff?: number } | null {
+  if (p.balance == null || !p.charges.length) return null;
+  const ars = p.charges.filter((c) => c.currency === "ARS");
+  const pagos = ars.filter((c) => c.kind === "pago").reduce((s, c) => s + c.amount, 0);
+  const net = ars.reduce((s, c) => s + c.amount, 0);
+  // Saldo anterior leído; si el OCR no lo pudo leer, se prueba con "pagó el total" (= -pagos)
+  const candidates = [p.previousBalance, -pagos].filter((x): x is number => x != null && Number.isFinite(x));
+  let best = Infinity;
+  for (const prev of candidates) best = Math.min(best, Math.abs(prev + net - p.balance));
+  return { ok: best <= 1, diff: Math.round(best * 100) / 100 };
 }
