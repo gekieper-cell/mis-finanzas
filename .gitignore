@@ -14,3 +14,6 @@ public/pdfjs
 # Descargas de Claude (zips, capturas): no van al repo
 Claude outputs/
 deploy.ps1.txt
+
+# Paquetes de actualizacion descargados
+*.zip

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { guessCategory } from "@/lib/categorize";
 import { Camera, CheckCircle2, ImageUp, Loader2, ScanLine, Trash2, TriangleAlert } from "lucide-react";
 import { useData } from "@/lib/data";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -94,12 +95,25 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
       if (r.amount) setAmount(r.amount.toLocaleString("es-AR", { maximumFractionDigits: 2 }));
       if (r.date) setDate(r.date);
 
+      // Comprobante de pago: si alguna cuenta coincide (últimos 4 de la tarjeta, o "Mercado Pago"), proponerla
+      if (r.voucher) {
+        const v = r.voucher;
+        const acc =
+          (v.last4 && accounts.find((a) => !a.archived && a.name.includes(v.last4!))) ||
+          (v.provider && /prepaga|dinero en cuenta|qr/i.test(v.method ?? "") &&
+            accounts.find((a) => !a.archived && a.name.toLowerCase().includes(v.provider!.toLowerCase().split(" ")[0]))) ||
+          undefined;
+        if (acc) setAccountId(acc.id);
+      }
+
       // Comercio recordado: nombre y categoría de la última vez
       let name = r.merchant ?? "";
       const key = merchantKey(r);
+      let learned = false;
       if (key) {
         const { data: m } = await sb.from("merchants").select("name,category_id").eq("key", key).maybeSingle();
         if (m) {
+          learned = true;
           name = m.name;
           const cat = categories.find((c) => c.id === m.category_id && !c.archived);
           if (cat) {
@@ -108,10 +122,18 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
           }
         }
       }
+      // Comercio nuevo: sugerir categoría por palabras clave del nombre (farmacia, YPF, seguro…)
+      if (!learned && r.merchant && !r.isCredit) {
+        const g = categories.find((c) => c.id === guessCategory(r.merchant!, categories));
+        if (g) {
+          setParentId(g.parent_id ?? g.id);
+          setSubId(g.parent_id ? g.id : null);
+        }
+      }
       setNote(name);
 
       // ¿Ya cargada? (mismo número de comprobante, o mismo monto y fecha)
-      const num = r.docLabel?.match(/\d{4}-\d{8}$/)?.[0];
+      const num = r.docLabel?.match(/\d{4}-\d{8}$/)?.[0] ?? (r.voucher?.operation ? `Op. ${r.voucher.operation}` : undefined);
       if (num || (r.amount && r.date)) {
         let q = sb.from("transactions").select("date,amount").limit(1);
         q = num ? q.ilike("note", `%${num}%`) : q.eq("amount", r.amount!).eq("date", r.date!);
@@ -119,7 +141,7 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
         if (dup?.length) setDuplicate(`${fmtDay(dup[0].date)} por ${fmtMoney(Number(dup[0].amount))}`);
       }
     },
-    [sb, categories],
+    [sb, categories, accounts],
   );
 
   const onQR = useCallback(
@@ -253,6 +275,10 @@ export function TxModal({ open, onClose, initial }: { open: boolean; onClose: ()
                 <div>
                   {scan.source === "qr" ? (
                     <p className="font-semibold">Leído del QR fiscal: datos exactos</p>
+                  ) : scan.voucher ? (
+                    <p className="font-semibold">
+                      {scan.confidence === "alta" ? "Comprobante de pago leído: el total coincide con el detalle de cuotas" : "Comprobante de pago: revisá el monto"}
+                    </p>
                   ) : scan.confidence === "alta" ? (
                     <p className="font-semibold">Leído del ticket: el total coincide en varias partes del ticket</p>
                   ) : (

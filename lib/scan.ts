@@ -21,6 +21,14 @@ export interface ScanResult {
   isCredit?: boolean; // nota de crédito => reintegro
   currencyNote?: string; // "USD 100 × 1.000"
   text?: string; // texto OCR (para depurar)
+  // Comprobante de pago con tarjeta / QR (Mercado Pago, Posnet, Getnet, Payway…)
+  voucher?: {
+    provider?: string; // "Mercado Pago"
+    method?: string; // "Prepaga Visa", "Débito Mastercard", "QR"
+    last4?: string;
+    operation?: string; // número de operación (para no cargarlo dos veces)
+    installments?: number;
+  };
 }
 
 const TIPOS: Record<number, string> = {
@@ -353,6 +361,122 @@ export function parseReceiptText(text: string): ScanResult {
   return res;
 }
 
+// ---------------------------------------------------------------------------
+// Comprobantes de pago (posnet / Mercado Pago Point / QR)
+// ---------------------------------------------------------------------------
+
+/** El OCR confunde letras con números en los últimos 4 de la tarjeta ("DOS5" = 0055) */
+const fixDigits = (s: string) => s.toUpperCase().replace(/[OQD]/g, "0").replace(/[SZ]/g, "5").replace(/[IL|]/g, "1").replace(/B/g, "8");
+
+const BRANDS: [RegExp, string][] = [
+  [/VISA/i, "Visa"], [/MASTER\s*CARD|MASTER/i, "Mastercard"], [/MAESTRO/i, "Maestro"], [/AMEX|AMERICAN\s*EXP/i, "American Express"],
+  [/CABAL/i, "Cabal"], [/NARANJA/i, "Naranja"], [/ARGENCARD/i, "Argencard"],
+];
+const SMALL = new Set(["e", "y", "de", "del", "la", "las", "los", "el"]);
+const LEGAL = /^(S\.?A\.?S?|S\.?R\.?L\.?|S\.?A\.?U|S\.?H|S\.?C\.?A|SAS)$/i;
+
+/** "CARLOS D ALMIRÓN E HIJOS SA" -> "Carlos D Almirón e Hijos SA" (si viene todo en mayúsculas) */
+export function prettyMerchant(s: string): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t !== t.toUpperCase()) return t;
+  return t.split(" ").map((w, i) => {
+    if (LEGAL.test(w)) return w.replace(/\./g, "").toUpperCase();
+    const lw = w.toLowerCase();
+    if (i > 0 && SMALL.has(lw)) return lw;
+    return lw.charAt(0).toUpperCase() + lw.slice(1);
+  }).join(" ");
+}
+
+export function isPaymentVoucher(text: string): boolean {
+  const t = text.toUpperCase();
+  const signals = [
+    /\bAPROBAD[OA]\b/, /OPERACI[OÓ]N/, /TICKET\s+(CLIENTE|VENDEDOR|COMERCIO)/, /\bAID\s*[:;]/, /\bNFC\b/,
+    /MERCADO|\bPAGO\b/, /COMPROBANTE\s+DE\s+PAGO/, /\bCUOTAS?\b/, /N[UÚ]MERO\s+DE\s+SERIE|SMARTPOS/,
+  ].filter((re) => re.test(t)).length;
+  return /\bAPROBAD[OA]\b/.test(t) && signals >= 3;
+}
+
+/**
+ * Comprobante de pago (no es factura fiscal): total, fecha, comercio, CUIT, medio de pago y nº de operación.
+ * El total se valida contra el detalle de cuotas "(1x $ 36.000,00)".
+ */
+export function parsePaymentVoucher(text: string, base: ScanResult): ScanResult {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/[|]/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const res: ScanResult = { ...base, voucher: {} };
+  const v = res.voucher!;
+  const up = text.toUpperCase();
+
+  if (/MERCADO/.test(up) || /\bNN?,?\s*PAGO\b/.test(up) || /SMARTPOS/.test(up)) v.provider = "Mercado Pago";
+  else if (/GETNET/.test(up)) v.provider = "Getnet";
+  else if (/PAYWAY|POSNET/.test(up)) v.provider = "Payway";
+  else if (/CLOVER|FISERV|FIRST\s*DATA/.test(up)) v.provider = "Fiserv";
+
+  // Total: línea "Total" y detalle de cuotas "(Nx $ importe)"
+  const amt = (s: string) => {
+    const m = [...s.matchAll(AMOUNT_RE)].map((x) => parseAmount(x[1])).filter((n) => Number.isFinite(n) && n > 0 && n < 1e9);
+    return m.length ? m[m.length - 1] : undefined;
+  };
+  const totalLine = lines.find((l) => /^\W*TOTAL\b/i.test(l));
+  const total = totalLine ? amt(totalLine) : undefined;
+  const cuo = text.match(/\(\s*(\d{1,2})\s*[xX×]\s*\$?\s*([\d.,]+)\s*\)/);
+  const each = cuo ? parseAmount(cuo[2]) : undefined;
+  const n = cuo ? Number(cuo[1]) : undefined;
+  if (n) v.installments = n;
+  const fromCuotas = n && each ? Math.round(n * each * 100) / 100 : undefined;
+  if (total !== undefined && fromCuotas !== undefined && Math.abs(total - fromCuotas) <= Math.max(1, n!)) {
+    res.amount = total;
+    res.confidence = "alta";
+  } else if (total !== undefined || fromCuotas !== undefined) {
+    res.amount = total ?? fromCuotas;
+    res.confidence = "media";
+  }
+
+  // Medio de pago
+  const pm = up.match(/\b(PREPAGA|D[EÉ]BITO|CR[EÉ]DITO)\b[^\n]{0,25}/);
+  const brand = BRANDS.find(([re]) => re.test(pm?.[0] ?? up))?.[1];
+  const kind = pm ? (pm[1].startsWith("PRE") ? "Prepaga" : pm[1].startsWith("D") ? "Débito" : "Crédito") : undefined;
+  if (kind || brand) v.method = [kind, brand].filter(Boolean).join(" ");
+  else if (/\bQR\b|DINERO EN CUENTA/.test(up)) v.method = /DINERO EN CUENTA/.test(up) ? "Dinero en cuenta" : "QR";
+  const l4 = pm?.[0].match(/\s([0-9OQDSZILB]{4})(?=\s|$)/);
+  if (l4) {
+    const d = fixDigits(l4[1]);
+    if (/^\d{4}$/.test(d)) v.last4 = d;
+  }
+
+  // Nº de operación: el "#" a veces se lee como "4" pegado adelante
+  const op = text.match(/OPERACI[OÓ]N\s*(?:N[º°ro.]*\s*)?(#|4\s|41\s)?\s*([\d ]{8,18})/i);
+  if (op) {
+    let num = op[2].replace(/\D/g, "");
+    if (op[1] && op[1].trim() !== "#") num = (op[1].trim().slice(1) + num); // "41 823…" -> "1823…"
+    if (!op[1] && num.length === 13 && num.startsWith("4")) num = num.slice(1);
+    if (num.length >= 8 && num.length <= 16) v.operation = num;
+  }
+
+  // Comercio: renglones entre "APROBADO" y el que tiene el CUIT (el nombre puede ocupar dos líneas)
+  const iAp = lines.findIndex((l) => /APROBAD[OA]/i.test(l));
+  if (iAp >= 0) {
+    const parts: string[] = [];
+    for (const l of lines.slice(iAp + 1, iAp + 5)) {
+      const hasCuit = /\b\d{2}[\s\-.]?\d{8}[\s\-.]?\d\b/.test(l);
+      if (!hasCuit && /\d{3,}.*,|,.*\d{3,}|PROVINCIA|ARGENTIN|N[UÚ]MERO DE SERIE/i.test(l)) break; // dirección
+      const name = l.replace(/\b\d{2}[\s\-.]?\d{8}[\s\-.]?\d\b/, "").replace(/[^\wÁÉÍÓÚÑÜáéíóúñü&.' -]/g, "").trim();
+      if (name) parts.push(name);
+      if (hasCuit) break;
+    }
+    const m = parts.join(" ").replace(/\s+/g, " ").trim();
+    if (m.length >= 3) res.merchant = prettyMerchant(m).slice(0, 60);
+  }
+
+  res.docLabel = [
+    v.provider,
+    v.method && `${v.method}${v.last4 ? ` ••${v.last4}` : ""}`,
+    v.installments && v.installments > 1 ? `${v.installments} cuotas` : null,
+    v.operation && `Op. ${v.operation}`,
+  ].filter(Boolean).join(" · ") || "Comprobante de pago";
+  if (v.operation) res.docKey = `op-${v.operation}`;
+  return res;
+}
+
 /** Clave estable de un comercio: CUIT si existe, si no el nombre normalizado */
 export function merchantKey(r: Pick<ScanResult, "cuit" | "merchant">): string | null {
   if (r.cuit) return r.cuit.replace(/\D/g, "");
@@ -375,5 +499,8 @@ export async function scanReceipt(file: File, onStatus: (s: string) => void): Pr
   }
   onStatus("No hay QR fiscal. Leyendo el texto del ticket…");
   const text = await ocr(canvas, (p) => onStatus(`Leyendo el texto del ticket… ${Math.round(p * 100)}%`));
-  return parseReceiptText(text);
+  // Solo en builds de prueba (la variable no existe en Vercel): deja el texto OCR para depurar
+  if (process.env.NEXT_PUBLIC_SCAN_DEBUG === "1") (window as unknown as { __scanText?: string }).__scanText = text;
+  const r = parseReceiptText(text);
+  return isPaymentVoucher(text) ? parsePaymentVoucher(text, r) : r;
 }
