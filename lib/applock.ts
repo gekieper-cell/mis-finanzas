@@ -61,7 +61,7 @@ export async function enrollLock(label: string): Promise<LockConfig> {
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
       rp: { name: "Mis Finanzas", id: location.hostname },
-      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: label || "Mis Finanzas", displayName: "Mis Finanzas" },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "Mis Finanzas", displayName: "Mis Finanzas" },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
       authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "discouraged" },
       attestation: "none",

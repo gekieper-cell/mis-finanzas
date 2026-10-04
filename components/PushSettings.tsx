@@ -151,7 +151,7 @@ export function PushSettings() {
         </div>
         <label className="flex flex-wrap items-center gap-3 text-sm">
           Avisar vencimientos con
-          <div className="w-36">
+          <div className="w-48">
             <Select value={settings.due_days} onChange={(e) => saveSettings({ ...settings, due_days: Number(e.target.value) })}>
               {[0, 1, 2, 3, 5, 7].map((d) => <option key={d} value={d}>{d === 0 ? "el mismo día" : `${d} día${d > 1 ? "s" : ""} antes`}</option>)}
             </Select>

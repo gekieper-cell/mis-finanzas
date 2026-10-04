@@ -105,11 +105,16 @@ end `$`$;
 select name, updated_at from vault.secrets where name in ('push_app_url', 'push_secret');
 "@
 Set-Clipboard -Value $sql
-$SECRET = $null; $sql = $null
+$SECRET = $null
 Start-Process "https://supabase.com/dashboard/project/$SUPABASE_REF/sql/new"
-Info "Se abrio el SQL Editor y el SQL esta en el portapapeles."
+Info "Se abrio el SQL Editor (proyecto $SUPABASE_REF) y el SQL esta en el portapapeles."
 Info "Pegalo (Ctrl+V), toca Run y verifica que liste push_app_url y push_secret."
-Read-Host "  Enter cuando lo hayas ejecutado"
+while ($true) {
+  $r = Read-Host "  Enter cuando lo hayas ejecutado  (C + Enter = volver a copiarlo)"
+  if ($r -match '^[cC]$') { Set-Clipboard -Value $sql; Ok "Copiado de nuevo al portapapeles"; continue }
+  break
+}
+$sql = $null
 Set-Clipboard -Value " "
 Ok "Portapapeles limpio"
 
