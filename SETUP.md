@@ -25,6 +25,7 @@ Si ya corriste `schema.sql` antes, ejecutá solo las migraciones nuevas, en orde
 | `supabase/migrations/004_consumos.sql` | Importar los consumos del resumen sin duplicar |
 | `supabase/migrations/005_doble_factor.sql` | La base exige el código TOTP si activaste el doble factor |
 | `supabase/migrations/006_avisos.sql` | Avisos push diarios (antes: **Database → Extensions** → habilitar `pg_cron` y `pg_net`) |
+| `supabase/migrations/007_categorias.sql` | Categorías Comida (súper, restaurantes, kiosco y café) y Gimnasio / Streaming en Bienestar |
 
 Son idempotentes: correrlas dos veces no rompe nada.
 

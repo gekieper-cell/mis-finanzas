@@ -317,10 +317,20 @@ begin
     ('Seguro', 'expense', '#eb6834', 'shield', p),
     ('Patente / Mantenimiento', 'expense', '#eb6834', 'wrench', p);
 
+  insert into public.categories (name, kind, color, icon) values ('Comida', 'expense', '#e34948', 'food') returning id into p;
+  insert into public.categories (name, kind, color, icon, parent_id) values
+    ('Supermercado', 'expense', '#e34948', 'cart', p),
+    ('Restaurantes y delivery', 'expense', '#e34948', 'food', p),
+    ('Kiosco y café', 'expense', '#e34948', 'coffee', p);
+
+  insert into public.categories (name, kind, color, icon) values ('Bienestar', 'expense', '#e87ba4', 'sparkles') returning id into p;
+  insert into public.categories (name, kind, color, icon, parent_id) values
+    ('Gimnasio', 'expense', '#e87ba4', 'gym', p),
+    ('Streaming y apps', 'expense', '#e87ba4', 'tv', p);
+
   insert into public.categories (name, kind, color, icon) values
     ('Salud', 'expense', '#1baf7a', 'heart-pulse'),
     ('Finanzas', 'expense', '#eda100', 'landmark'),
-    ('Bienestar', 'expense', '#e87ba4', 'sparkles'),
     ('Sueldo', 'income', '#2a78d6', 'briefcase'),
     ('Otros ingresos', 'income', '#1baf7a', 'plus-circle');
 end $$;
